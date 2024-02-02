@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
-
+import 'package:dart_ping/dart_ping.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_pos_printer_platform/src/models/printer_device.dart';
 import 'package:network_info_plus/network_info_plus.dart';
-
 import 'package:flutter_pos_printer_platform/discovery.dart';
 import 'package:flutter_pos_printer_platform/printer.dart';
 import 'package:ping_discover_network_forked/ping_discover_network_forked.dart';
@@ -35,6 +35,10 @@ class TcpPrinterConnector implements PrinterConnector<TcpPrinterInput> {
 
   TcpPrinterConnector();
   Socket? _socket;
+  TCPStatus status = TCPStatus.none;
+
+  Stream<TCPStatus> get _statusStream => _statusStreamController.stream;
+  final StreamController<TCPStatus> _statusStreamController = StreamController.broadcast();
 
   static Future<List<PrinterDiscovered<TcpPrinterInfo>>> discoverPrinters({String? ipAddress, int? port, Duration? timeOut}) async {
     final List<PrinterDiscovered<TcpPrinterInfo>> result = [];
@@ -80,14 +84,15 @@ class TcpPrinterConnector implements PrinterConnector<TcpPrinterInput> {
 
     final String subnet = deviceIp!.substring(0, deviceIp.lastIndexOf('.'));
     // final List<String> ips = List.generate(255, (index) => '$subnet.$index');
+    try {
+      final stream = NetworkAnalyzer.discover2(subnet, defaultPort);
 
-    final stream = NetworkAnalyzer.discover2(subnet, defaultPort);
-
-    await for (var data in stream.map((message) => message)) {
-      if (data.exists) {
-        yield PrinterDevice(name: "${data.ip}:$defaultPort", address: data.ip);
+      await for (var data in stream.map((message) => message)) {
+        if (data.exists) {
+          yield PrinterDevice(name: "${data.ip}:$defaultPort", address: data.ip);
+        }
       }
-    }
+    } catch (e) {}
   }
 
   @override
@@ -95,21 +100,51 @@ class TcpPrinterConnector implements PrinterConnector<TcpPrinterInput> {
     try {
       // final _socket = await Socket.connect(_host, _port, timeout: _timeout);
       _socket?.add(Uint8List.fromList(bytes));
-      await _socket?.flush();
-      _socket?.destroy();
+      await Future.delayed(Duration(milliseconds: 100));
+      // await _socket?.flush();
+      // _socket?.destroy();
       return true;
     } catch (e) {
+      _socket?.destroy();
       return false;
     }
   }
 
   @override
   Future<bool> connect(TcpPrinterInput model) async {
+    _socket = await Socket.connect(model.ipAddress, model.port, timeout: model.timeout);
+    debugPrint('socket connected'); //if opened you will get it here
+    listenSocket();
+    return true;
+  }
+
+  Future<bool> connectAndKeep(TcpPrinterInput model) async {
     try {
-      _socket = await Socket.connect(model.ipAddress, model.port, timeout: model.timeout);
+      if (status == TCPStatus.none) {
+        _socket = await Socket.connect(model.ipAddress, model.port, timeout: model.timeout);
+        status = TCPStatus.connected;
+        debugPrint('socket connected'); //if opened you will get it here
+        _statusStreamController.add(status);
+
+        // Create ping object with desired args
+        final ping = Ping('${model.ipAddress}', interval: 3, timeout: 7);
+
+        // Begin ping process and listen for output
+        ping.stream.listen((PingData data) {
+          if (data.error != null) {
+            debugPrint(' ----- ping error ${data.error}');
+            _socket?.destroy();
+            status = TCPStatus.none;
+            _statusStreamController.add(status);
+          }
+        });
+        listenSocket();
+      }
       return true;
     } catch (e) {
-      print(e);
+      _socket?.destroy();
+      status = TCPStatus.none;
+      _statusStreamController.add(status);
       return false;
     }
   }
@@ -117,10 +152,40 @@ class TcpPrinterConnector implements PrinterConnector<TcpPrinterInput> {
   /// [delayMs]: milliseconds to wait after destroying the socket
   @override
   Future<bool> disconnect({int? delayMs}) async {
-    // _socket.destroy();
+    // await _socket?.flush();
+    _socket?.destroy();
+    // status = TCPStatus.none;
+    // _statusStreamController.add(status);
     if (delayMs != null) {
       await Future.delayed(Duration(milliseconds: delayMs), () => null);
     }
     return true;
+  }
+
+  /// Gets the current state of the TCP module
+  Stream<TCPStatus> get currentStatus async* {
+    yield* _statusStream.cast<TCPStatus>();
+  }
+
+  void listenSocket() {
+    _socket?.listen(
+      (dynamic message) {
+        debugPrint('message $message');
+      },
+      onDone: () {
+        status = TCPStatus.none;
+        debugPrint('socket closed'); //if closed you will get it here
+        _socket?.destroy();
+        // ping.stop();
+        // _statusStreamController.add(status);
+      },
+      onError: (error) {
+        status = TCPStatus.none;
+        debugPrint('socket error $error');
+        _socket?.destroy();
+        // ping.stop();
+        // _statusStreamController.add(status);
+      },
+    );
   }
 }

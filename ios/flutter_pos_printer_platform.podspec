@@ -14,16 +14,10 @@ A new Flutter plugin project.
   s.author           = { 'Your Company' => 'email@example.com' }
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
-  s.public_header_files = 'Classes/**/*.h'
-  s.static_framework = true
   s.dependency 'Flutter'
-  s.platform = :ios, '9.0'
-
-  # Import all * .a libraries in the Classes folder
-  s.frameworks = ["SystemConfiguration", "CoreTelephony","WebKit"]
-  s.vendored_libraries = '**/*.a'
+  s.platform = :ios, '11.0'
 
   # Flutter.framework does not contain a i386 slice.
-  # s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
-  # s.swift_version = '5.0'
+  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
+  s.swift_version = '5.0'
 end

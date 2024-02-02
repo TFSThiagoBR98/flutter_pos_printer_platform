@@ -1,7 +1,7 @@
 import 'dart:io';
 
 class PrinterDevice {
-  String name;
+  String? name;
   String operatingSystem = Platform.operatingSystem;
   String? vendorId;
   String? productId;

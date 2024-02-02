@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 
 final flutterPrinterChannel = const MethodChannel('com.sersoluciones.flutter_pos_printer_platform');
@@ -12,13 +10,9 @@ enum BTStatus { none, connecting, connected, scanning, stopScanning }
 
 enum USBStatus { none, connecting, connected }
 
-abstract class Printer {
-  Future<bool> image(Uint8List image, {int threshold = 150});
-  Future<bool> beep();
-  Future<bool> pulseDrawer();
-  Future<bool> setIp(String ipAddress);
-  Future<bool> selfTest();
-}
+enum TCPStatus { none, connected }
+
+abstract class Printer {}
 
 abstract class BasePrinterInput {}
 

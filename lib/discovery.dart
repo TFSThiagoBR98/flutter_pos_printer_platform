@@ -1,6 +1,3 @@
-import 'dart:io';
-import 'package:flutter_star_prnt/flutter_star_prnt.dart';
-
 import 'flutter_pos_printer_platform.dart';
 
 class PrinterDiscovered<T> {
@@ -13,23 +10,9 @@ class PrinterDiscovered<T> {
 }
 
 typedef DiscoverResult<T> = Future<List<PrinterDiscovered<T>>>;
-typedef StarPrinterInfo = PortInfo;
-
-DiscoverResult<StarPrinterInfo> discoverStarPrinter() async {
-  if (Platform.isAndroid || Platform.isIOS) {
-    return (await StarPrnt.portDiscovery(StarPortType.All))
-        .map((e) => PrinterDiscovered<StarPrinterInfo>(
-              name: e.modelName ?? 'Star Printer',
-              detail: e,
-            ))
-        .toList();
-  }
-  return [];
-}
 
 Future<List<PrinterDiscovered>> discoverPrinters(
     {List<DiscoverResult Function()> modes = const [
-      discoverStarPrinter,
       UsbPrinterConnector.discoverPrinters,
       BluetoothPrinterConnector.discoverPrinters,
       TcpPrinterConnector.discoverPrinters

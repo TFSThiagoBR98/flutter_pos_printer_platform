@@ -10,15 +10,13 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.sersoluciones.flutter_pos_printer_platform.models.LocalBluetoothDevice
-import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.Result
 
 
-class BluetoothService(private val bluetoothHandler: Handler, private val channel: MethodChannel) {
+class BluetoothService(private var bluetoothHandler: Handler?) {
     private var scanning = false
     private val handler = Handler(Looper.getMainLooper())
-    private var devicesSink: EventChannel.EventSink? = null
     private var currentActivity: Activity? = null
     private var mConnectedDeviceAddress: String? = ""
     private val mHandlerAutoConnect = Handler(Looper.getMainLooper())
@@ -35,16 +33,20 @@ class BluetoothService(private val bluetoothHandler: Handler, private val channe
     private var devicesBle: MutableList<LocalBluetoothDevice> = mutableListOf()
 
     init {
-        scanning = false;
+        scanning = false
+    }
+
+    fun setHandler(handler: Handler?) {
+        bluetoothHandler = handler
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Scan bluetooth
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    fun scanBluDevice() {
+    fun scanBluDevice(mChannel: MethodChannel) {
         val list = ArrayList<HashMap<*, *>>()
-        bluetoothHandler.obtainMessage(BluetoothConstants.MESSAGE_START_SCANNING, -1, -1)
-            .sendToTarget()
+        bluetoothHandler?.obtainMessage(BluetoothConstants.MESSAGE_START_SCANNING, -1, -1)
+            ?.sendToTarget()
         val pairedDevices: Set<BluetoothDevice>? = mBluetoothAdapter.bondedDevices
         pairedDevices?.forEach { device ->
             val deviceName =
@@ -56,31 +58,34 @@ class BluetoothService(private val bluetoothHandler: Handler, private val channe
             list.add(deviceMap)
             Log.d(TAG, "deviceName $deviceName deviceHardwareAddress $deviceHardwareAddress")
 
-            channel.invokeMethod("ScanResult", deviceMap)
+            mChannel.invokeMethod("ScanResult", deviceMap)
 
 //            currentActivity?.runOnUiThread { channel.invokeMethod("ScanResult", deviceMap) }
 //            devicesSink?.success(deviceMap)
         }
 
-        bluetoothHandler.obtainMessage(BluetoothConstants.MESSAGE_STOP_SCANNING, -1, -1)
-            .sendToTarget()
+        bluetoothHandler?.obtainMessage(BluetoothConstants.MESSAGE_STOP_SCANNING, -1, -1)
+            ?.sendToTarget()
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Scan ble
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    fun scanBleDevice() {
+    fun scanBleDevice(mChannel: MethodChannel) {
         if (bleScanner == null) return
         devicesBle.clear()
         handler.removeCallbacksAndMessages(null)
+        // Device scan callback.
+        val leScanCallback = MyScanCallback()
+        leScanCallback.init(mChannel)
         val list = ArrayList<HashMap<*, *>>()
 
         if (!scanning) { // Stops scanning after a pre-defined scan period.
             handler.postDelayed({
                 scanning = false
                 bleScanner.stopScan(leScanCallback)
-                bluetoothHandler.obtainMessage(BluetoothConstants.MESSAGE_STOP_SCANNING, -1, -1)
-                    .sendToTarget()
+                bluetoothHandler?.obtainMessage(BluetoothConstants.MESSAGE_STOP_SCANNING, -1, -1)
+                    ?.sendToTarget()
                 Log.d(TAG, "----- stop scanning ble ------- ")
                 for (device in devicesBle) {
                     val deviceMap: HashMap<String?, String?> = HashMap()
@@ -92,22 +97,27 @@ class BluetoothService(private val bluetoothHandler: Handler, private val channe
             Log.d(TAG, "----- start scanning ble ------ ")
             scanning = true
             bleScanner.startScan(leScanCallback)
-            bluetoothHandler.obtainMessage(BluetoothConstants.MESSAGE_START_SCANNING, -1, -1)
-                .sendToTarget()
+            bluetoothHandler?.obtainMessage(BluetoothConstants.MESSAGE_START_SCANNING, -1, -1)
+                ?.sendToTarget()
         } else {
             scanning = false
             bleScanner.stopScan(leScanCallback)
-            bluetoothHandler.obtainMessage(BluetoothConstants.MESSAGE_STOP_SCANNING, -1, -1)
-                .sendToTarget()
+            bluetoothHandler?.obtainMessage(BluetoothConstants.MESSAGE_STOP_SCANNING, -1, -1)
+                ?.sendToTarget()
         }
     }
 
-    fun cleanHandlerBtBle(){
+    fun cleanHandlerBtBle() {
         handler.removeCallbacksAndMessages(null)
     }
 
-    // Device scan callback.
-    private val leScanCallback: ScanCallback = object : ScanCallback() {
+    inner class MyScanCallback : ScanCallback() {
+
+        private var mmChannel: MethodChannel? = null
+        fun init(channel: MethodChannel) {
+            mmChannel = channel
+        }
+
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
 
@@ -124,7 +134,7 @@ class BluetoothService(private val bluetoothHandler: Handler, private val channe
                 deviceMap["name"] = deviceName
                 deviceMap["address"] = deviceHardwareAddress
                 if (result.device?.name != null)
-                    channel.invokeMethod("ScanResult", deviceMap)
+                    mmChannel?.invokeMethod("ScanResult", deviceMap)
                 devicesBle.add(deviceBT)
                 Log.d(TAG, "deviceName ${result.device.name} deviceHardwareAddress ${result.device.address}")
 
@@ -148,10 +158,14 @@ class BluetoothService(private val bluetoothHandler: Handler, private val channe
 
 
     fun onStartConnection(context: Context, address: String?, result: Result, isBle: Boolean = false, autoConnect: Boolean = false) {
+        Log.d(TAG, " ------------- isBle: $isBle is ble connection ${bluetoothConnection is BluetoothBleConnection}")
+        if ((isBle && bluetoothConnection !is BluetoothBleConnection) || (!isBle && bluetoothConnection is BluetoothBleConnection)) {
+            bluetoothDisconnect()
+        }
         if (bluetoothConnection == null)
             bluetoothConnection =
-                if (isBle) BluetoothBleConnection(mContext = context, bluetoothHandler, autoConnect = autoConnect)
-                else BluetoothConnection(bluetoothHandler)
+                if (isBle) BluetoothBleConnection(mContext = context, bluetoothHandler!!, autoConnect = autoConnect)
+                else BluetoothConnection(bluetoothHandler!!)
         this.result = result
         reconnectBluetooth = bluetoothConnection is BluetoothConnection && autoConnect
         mConnectedDeviceAddress = address
@@ -160,8 +174,10 @@ class BluetoothService(private val bluetoothHandler: Handler, private val channe
             bluetoothConnect(address, result)
         } else if (bluetoothConnection!!.state == BluetoothConstants.STATE_CONNECTED) {
             result.success(true)
+            bluetoothHandler?.obtainMessage(BluetoothConstants.MESSAGE_STATE_CHANGE, bluetoothConnection!!.state, -1)?.sendToTarget()
         } else {
             result.success(false)
+            bluetoothHandler?.obtainMessage(BluetoothConstants.MESSAGE_STATE_CHANGE, bluetoothConnection!!.state, -1)?.sendToTarget()
         }
     }
 
@@ -200,6 +216,7 @@ class BluetoothService(private val bluetoothHandler: Handler, private val channe
         return false
     }
 
+    @Suppress("unused")
     private fun setUpBluetooth() {
 
         if (!mBluetoothAdapter.isEnabled) {
@@ -212,10 +229,6 @@ class BluetoothService(private val bluetoothHandler: Handler, private val channe
         return
     }
 
-    fun setEventSink(devicesSink: EventChannel.EventSink?) {
-        this.devicesSink = devicesSink
-    }
-
     fun setActivity(activity: Activity?) {
         this.currentActivity = activity
     }
@@ -226,9 +239,9 @@ class BluetoothService(private val bluetoothHandler: Handler, private val channe
         var bluetoothConnection: IBluetoothConnection? = null
 
 
-        fun getInstance(bluetoothHandler: Handler, channel: MethodChannel): BluetoothService {
+        fun getInstance(bluetoothHandler: Handler): BluetoothService {
             if (mInstance == null) {
-                mInstance = BluetoothService(bluetoothHandler, channel)
+                mInstance = BluetoothService(bluetoothHandler)
             }
             return mInstance!!
         }

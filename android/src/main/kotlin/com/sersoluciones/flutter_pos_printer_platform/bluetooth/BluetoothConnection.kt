@@ -328,7 +328,7 @@ class BluetoothConnection constructor(handler: Handler) : IBluetoothConnection {
          * @param bytes The bytes to write
          */
         fun write(bytes: ByteArray?) {
-//            logW("envia ConnectedThread MESSAGE_SEND_BT_CMD " + new String(buffer));
+//            Log.d(TAG, "envia ConnectedThread MESSAGE_SEND_BT_CMD " + String(bytes!!))
             try {
                 mmOutStream?.write(bytes)
             } catch (e: IOException) {
